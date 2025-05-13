@@ -165,7 +165,7 @@ int32_t GatherBEVPlugin::enqueue(const PluginTensorDesc *inputDesc, const Plugin
     switch (int(outputDesc[0].type))
     {
     case int(DataType::kFLOAT):
-        // printf("gather : fp32\n");
+        printf("gather : fp32\n");
         copy_feat_kernel<<<grid, block, 0, stream>>>(nthreads,
                                                     adj_num,
                                                     channel,
@@ -178,7 +178,7 @@ int32_t GatherBEVPlugin::enqueue(const PluginTensorDesc *inputDesc, const Plugin
 
         break;
     case int(DataType::kHALF):
-        // printf("gather : fp16\n");
+        printf("gather : fp16\n");
         copy_feat_kernel<<<grid, block, 0, stream>>>(nthreads,
                                                     adj_num,
                                                     channel,

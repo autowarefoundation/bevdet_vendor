@@ -2,36 +2,46 @@
 #include <cstdio>
 #include <fstream>
 #include <chrono>
-
+ 
 #include <thrust/sort.h>
 #include <thrust/functional.h>
-
+ 
 #include "bevdet.h"
-
+ 
 #include "alignbev_plugin.h"
 #include "bevpool_plugin.h"
 #include "preprocess_plugin.h"
 #include "gatherbev_plugin.h"
 
+#include "precision_config.h"
+
+#include <cuda_fp16.h>  // For __half and __float2half functions
+ 
 using std::chrono::duration;
 using std::chrono::high_resolution_clock;
-
-
-BEVDet::BEVDet(const std::string &config_file, int n_img,               
-               std::vector<Eigen::Matrix3f> _cams_intrin, 
-               std::vector<Eigen::Quaternion<float>> _cams2ego_rot, 
+ 
+ 
+BEVDet::BEVDet(const std::string &config_file, int n_img,              
+               std::vector<Eigen::Matrix3f> _cams_intrin,
+               std::vector<Eigen::Quaternion<float>> _cams2ego_rot,
                std::vector<Eigen::Translation3f> _cams2ego_trans,
                const std::string &onnx_file,
-               const std::string &engine_file) : 
-               cams_intrin(_cams_intrin), 
-               cams2ego_rot(_cams2ego_rot), 
-               cams2ego_trans(_cams2ego_trans){
+               const std::string &engine_file,
+               const std::string &precision) : 
+               cams_intrin(_cams_intrin),
+               cams2ego_rot(_cams2ego_rot),
+               cams2ego_trans(_cams2ego_trans),
+               precision_(precision) { 
+ 
+    // Set global precision for plugins
+    bevdet_precision::setPrecision(precision_);
 
     InitParams(config_file);
     if(n_img != N_img){
         printf("BEVDet need %d images, but given %d images!", N_img, n_img);
     }
-
+ 
+    //checking engine file exit or not
     if (access(engine_file.c_str(), F_OK) == 0) {
         printf("BEVDet Inference engine prepared.");
     } else {
@@ -39,49 +49,49 @@ BEVDet::BEVDet(const std::string &config_file, int n_img,
         exportEngine(onnx_file, engine_file);
     }
     auto start = high_resolution_clock::now();
-
+ 
     std::shared_ptr<int> ranks_bev_ptr = nullptr;
     std::shared_ptr<int> ranks_depth_ptr = nullptr;
     std::shared_ptr<int> ranks_feat_ptr = nullptr;
     std::shared_ptr<int> interval_starts_ptr = nullptr;
     std::shared_ptr<int> interval_lengths_ptr = nullptr;
-
-
-    InitViewTransformer(ranks_bev_ptr, ranks_depth_ptr, ranks_feat_ptr, 
+ 
+ 
+    InitViewTransformer(ranks_bev_ptr, ranks_depth_ptr, ranks_feat_ptr,
                                 interval_starts_ptr, interval_lengths_ptr);
     auto end = high_resolution_clock::now();
     duration<float> t = end - start;
     printf("InitVewTransformer cost time : %.4lf ms\n", t.count() * 1000);
-
+ 
     InitEngine(engine_file); // FIXME
     MallocDeviceMemory();
-
+ 
     if(use_adj){
-        adj_frame_ptr.reset(new adjFrame(adj_num, 
+        adj_frame_ptr.reset(new adjFrame(adj_num,
                                         trt_buffer_sizes[buffer_map["curr_bevfeat"]]));
     }
-
+ 
     cam_params_host = new float[N_img * cam_params_size];
-    
-    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["ranks_bev"]], ranks_bev_ptr.get(), 
+   
+    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["ranks_bev"]], ranks_bev_ptr.get(),
                                         valid_feat_num * sizeof(int), cudaMemcpyHostToDevice));
-    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["ranks_depth"]], ranks_depth_ptr.get(), 
+    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["ranks_depth"]], ranks_depth_ptr.get(),
                                         valid_feat_num * sizeof(int), cudaMemcpyHostToDevice));
-    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["ranks_feat"]], ranks_feat_ptr.get(), 
+    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["ranks_feat"]], ranks_feat_ptr.get(),
                                         valid_feat_num * sizeof(int), cudaMemcpyHostToDevice));
-    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["interval_starts"]], interval_starts_ptr.get(), 
+    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["interval_starts"]], interval_starts_ptr.get(),
                                         unique_bev_num * sizeof(int), cudaMemcpyHostToDevice));
-    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["interval_lengths"]], interval_lengths_ptr.get(), 
+    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["interval_lengths"]], interval_lengths_ptr.get(),
                                         unique_bev_num * sizeof(int), cudaMemcpyHostToDevice));
-
+ 
     CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["mean"]], mean.data(), 3 * sizeof(float),
-                                                                    cudaMemcpyHostToDevice));
+                                                                   cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["std"]], std.data(), 3 * sizeof(float),
-                                                                    cudaMemcpyHostToDevice));                                                     
+                                                                   cudaMemcpyHostToDevice));        
 }
-
-
-
+ 
+ 
+ 
 void BEVDet::InitCamParams(const std::vector<Eigen::Quaternion<float>> &curr_cams2ego_rot,
                            const std::vector<Eigen::Translation3f> &curr_cams2ego_trans,
                            const std::vector<Eigen::Matrix3f> &curr_cams_intrin){
@@ -100,7 +110,7 @@ void BEVDet::InitCamParams(const std::vector<Eigen::Quaternion<float>> &curr_cam
         cam_params_host[i * cam_params_size + 11] = 0.f; // bda 0 1
         cam_params_host[i * cam_params_size + 12] = 0.f; // bda 1 0
         cam_params_host[i * cam_params_size + 13] = 1.f; // bda 1 1
-        cam_params_host[i * cam_params_size + 14] = 1.f; // bda 2 2 
+        cam_params_host[i * cam_params_size + 14] = 1.f; // bda 2 2
         cam_params_host[i * cam_params_size + 15] = curr_cams2ego_rot[i].matrix()(0, 0);
         cam_params_host[i * cam_params_size + 16] = curr_cams2ego_rot[i].matrix()(0, 1);
         cam_params_host[i * cam_params_size + 17] = curr_cams2ego_rot[i].matrix()(0, 2);
@@ -114,16 +124,19 @@ void BEVDet::InitCamParams(const std::vector<Eigen::Quaternion<float>> &curr_cam
         cam_params_host[i * cam_params_size + 25] = curr_cams2ego_rot[i].matrix()(2, 2);
         cam_params_host[i * cam_params_size + 26] = curr_cams2ego_trans[i].translation()(2);
     }
-    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["cam_params"]], cam_params_host, 
-                        trt_buffer_sizes[buffer_map["cam_params"]], cudaMemcpyHostToDevice));
-    // printf("trans : %d cam : %d\n", transform_size, cam_params_size);
+
+
+    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["cam_params"]], cam_params_host,
+                       trt_buffer_sizes[buffer_map["cam_params"]], cudaMemcpyHostToDevice));
+
+    //printf("transs : %d cam : %d\n", transform_size, cam_params_size);
 }
-
-
+ 
+ 
 void BEVDet::InitParams(const std::string &config_file){
     mean = std::vector<float>(3);
     std = std::vector<float>(3);
-
+ 
     YAML::Node model_config = YAML::LoadFile(config_file);
     N_img = model_config["data_config"]["Ncams"].as<int>();
     src_img_h = model_config["data_config"]["src_size"][0].as<int>();
@@ -160,7 +173,7 @@ void BEVDet::InitParams(const std::string &config_file){
     use_adj = model_config["use_adj"].as<bool>();
     transform_size = model_config["transform_size"].as<int>();
     cam_params_size = model_config["cam_params_size"].as<int>();
-
+ 
     std::vector<std::vector<float>> nms_factor_temp = model_config["test_cfg"]
                             ["nms_rescale_factor"].as<std::vector<std::vector<float>>>();
     nms_rescale_factor.clear();
@@ -169,7 +182,7 @@ void BEVDet::InitParams(const std::string &config_file){
             nms_rescale_factor.push_back(factor);
         }
     }
-    
+   
     std::vector<std::vector<std::string>> class_name_pre_task;
     class_num = 0;
     YAML::Node tasks = model_config["model"]["tasks"];
@@ -180,14 +193,14 @@ void BEVDet::InitParams(const std::string &config_file){
         class_num += num;
         class_name_pre_task.push_back(it["class_names"].as<std::vector<std::string>>());
     }
-
+ 
     YAML::Node common_head_channel = model_config["model"]["common_head"]["channels"];
     YAML::Node common_head_name = model_config["model"]["common_head"]["names"];
     for(size_t i = 0; i< common_head_channel.size(); i++){
-        out_num_task_head[common_head_name[i].as<std::string>()] = 
+        out_num_task_head[common_head_name[i].as<std::string>()] =
                                                         common_head_channel[i].as<int>();
     }
-
+ 
     resize_radio = (float)input_img_w / src_img_w;
     feat_h = input_img_h / down_sample;
     feat_w = input_img_w / down_sample;
@@ -197,28 +210,28 @@ void BEVDet::InitParams(const std::string &config_file){
     zgrid_num = (z_end - z_start) / z_step;
     bev_h = ygrid_num;
     bev_w = xgrid_num;
-
-
+ 
+ 
     post_rot << resize_radio, 0, 0,
                 0, resize_radio, 0,
                 0, 0, 1;
     post_trans.translation() << -crop_w, -crop_h, 0;
-
+ 
     adj_num = 0;
     if(use_adj){
         adj_num = model_config["adj_num"].as<int>();
     }
-
-
+ 
+ 
     postprocess_ptr.reset(new PostprocessGPU(class_num, score_thresh, nms_overlap_thresh,
                                             nms_pre_maxnum, nms_post_maxnum, down_sample,
                                             bev_h, bev_w, x_step, y_step, x_start,
                                             y_start, class_num_pre_task, nms_rescale_factor));
-
+ 
 }
-
+ 
 void BEVDet::MallocDeviceMemory(){
-
+ 
     trt_buffer_sizes.resize(trt_engine->getNbIOTensors());
     trt_buffer_dev = (void**)new void*[trt_engine->getNbIOTensors()];
     for(int i = 0; i < trt_engine->getNbIOTensors(); i++){
@@ -231,9 +244,9 @@ void BEVDet::MallocDeviceMemory(){
         trt_buffer_sizes[i] = size;
         CHECK_CUDA(cudaMalloc(&trt_buffer_dev[i], size));
     }
-
+ 
     std::cout << "img num binding : " << trt_engine->getNbIOTensors() << std::endl;
-
+ 
     post_buffer = (void**)new void*[class_num_pre_task.size() * 6];
     for(size_t i = 0; i < class_num_pre_task.size(); i++){
         post_buffer[i * 6 + 0] = trt_buffer_dev[buffer_map["reg_" + std::to_string(i)]];
@@ -243,20 +256,20 @@ void BEVDet::MallocDeviceMemory(){
         post_buffer[i * 6 + 4] = trt_buffer_dev[buffer_map["vel_" + std::to_string(i)]];
         post_buffer[i * 6 + 5] = trt_buffer_dev[buffer_map["heatmap_" + std::to_string(i)]];
     }
-
+ 
     return;
 }
 
 
-void BEVDet::InitViewTransformer(std::shared_ptr<int> &ranks_bev_ptr, 
-                                 std::shared_ptr<int> &ranks_depth_ptr, 
-                                 std::shared_ptr<int> &ranks_feat_ptr, 
-                                 std::shared_ptr<int> &interval_starts_ptr, 
+void BEVDet::InitViewTransformer(std::shared_ptr<int> &ranks_bev_ptr,
+                                 std::shared_ptr<int> &ranks_depth_ptr,
+                                 std::shared_ptr<int> &ranks_feat_ptr,
+                                 std::shared_ptr<int> &interval_starts_ptr,
                                  std::shared_ptr<int> &interval_lengths_ptr){
-
+ 
     int num_points = N_img * depth_num * feat_h * feat_w;
     Eigen::Vector3f* frustum = new Eigen::Vector3f[num_points];
-
+ 
     for(int i = 0; i < N_img; i++){
         for(int d_ = 0; d_ < depth_num; d_++){
             for(int h_ = 0; h_ < feat_h; h_++){
@@ -266,17 +279,17 @@ void BEVDet::InitViewTransformer(std::shared_ptr<int> &ranks_bev_ptr,
                     (frustum + offset)->x() = (float)w_ * (input_img_w - 1) / (feat_w - 1);
                     (frustum + offset)->y() = (float)h_ * (input_img_h - 1) / (feat_h - 1);
                     (frustum + offset)->z() = (float)d_ * depth_step + depth_start;
-
+ 
                     // eliminate post transformation
                     *(frustum + offset) -= post_trans.translation();
                     *(frustum + offset) = post_rot.inverse() * *(frustum + offset);
-                    // 
+                    //
                     (frustum + offset)->x() *= (frustum + offset)->z();
                     (frustum + offset)->y() *= (frustum + offset)->z();
                     // img to ego -> rot -> trans
                     *(frustum + offset) = cams2ego_rot[i] * cams_intrin[i].inverse()
                                     * *(frustum + offset) + cams2ego_trans[i].translation();
-
+ 
                     // voxelization
                     *(frustum + offset) -= Eigen::Vector3f(x_start, y_start, z_start);
                     (frustum + offset)->x() = (int)((frustum + offset)->x() / x_step);
@@ -286,10 +299,10 @@ void BEVDet::InitViewTransformer(std::shared_ptr<int> &ranks_bev_ptr,
             }
         }
     }
-
+ 
     int* _ranks_depth = new int[num_points];
     int* _ranks_feat = new int[num_points];
-
+ 
     for(int i = 0; i < num_points; i++){
         _ranks_depth[i] = i;
     }
@@ -301,7 +314,7 @@ void BEVDet::InitViewTransformer(std::shared_ptr<int> &ranks_bev_ptr,
             }
         }
     }
-
+ 
     std::vector<int> kept;
     for(int i = 0; i < num_points; i++){
         if((int)(frustum + i)->x() >= 0 && (int)(frustum + i)->x() < xgrid_num &&
@@ -310,34 +323,34 @@ void BEVDet::InitViewTransformer(std::shared_ptr<int> &ranks_bev_ptr,
             kept.push_back(i);
         }
     }
-
+ 
     valid_feat_num = kept.size();
     int* ranks_depth_host = new int[valid_feat_num];
     int* ranks_feat_host = new int[valid_feat_num];
     int* ranks_bev_host = new int[valid_feat_num];
     int* order = new int[valid_feat_num];
-
+ 
     for(int i = 0; i < valid_feat_num; i++){
         Eigen::Vector3f &p = frustum[kept[i]];
-        ranks_bev_host[i] = (int)p.z() * xgrid_num * ygrid_num + 
+        ranks_bev_host[i] = (int)p.z() * xgrid_num * ygrid_num +
                             (int)p.y() * xgrid_num + (int)p.x();
         order[i] = i;
     }
-
+ 
     thrust::sort_by_key(ranks_bev_host, ranks_bev_host + valid_feat_num, order);
     for(int i = 0; i < valid_feat_num; i++){
         ranks_depth_host[i] = _ranks_depth[kept[order[i]]];
         ranks_feat_host[i] = _ranks_feat[kept[order[i]]];
     }
-
+ 
     delete[] _ranks_depth;
     delete[] _ranks_feat;
     delete[] frustum;
     delete[] order;
-
+ 
     std::vector<int> interval_starts_host;
     std::vector<int> interval_lengths_host;
-
+ 
     interval_starts_host.push_back(0);
     int len = 1;
     for(int i = 1; i < valid_feat_num; i++){
@@ -350,53 +363,53 @@ void BEVDet::InitViewTransformer(std::shared_ptr<int> &ranks_bev_ptr,
             len++;
         }
     }
-    
+   
     interval_lengths_host.push_back(len);
     unique_bev_num = interval_lengths_host.size();
-
-
+ 
+ 
     int* interval_starts_host_ptr = new int[interval_starts_host.size()];
     int* interval_lengths_host_ptr = new int[interval_lengths_host.size()];
-
-    memcpy(interval_starts_host_ptr, interval_starts_host.data(), 
+ 
+    memcpy(interval_starts_host_ptr, interval_starts_host.data(),
                                             interval_starts_host.size() * sizeof(int));
-    memcpy(interval_lengths_host_ptr, interval_lengths_host.data(), 
+    memcpy(interval_lengths_host_ptr, interval_lengths_host.data(),
                                             interval_lengths_host.size() * sizeof(int));
-
+ 
     ranks_bev_ptr.reset(ranks_bev_host);
     ranks_depth_ptr.reset(ranks_depth_host);
     ranks_feat_ptr.reset(ranks_feat_host);
     interval_starts_ptr.reset(interval_starts_host_ptr);
     interval_lengths_ptr.reset(interval_lengths_host_ptr);
-
+ 
     printf("valid_feat_num: %d \n", valid_feat_num);
     printf("unique_bev_num: %d \n", unique_bev_num);
 }
-
-
+ 
+ 
 void print_dim(nvinfer1::Dims dim){
     for(auto i = 0; i < dim.nbDims; i++){
         printf("%ld%c", dim.d[i], i == dim.nbDims - 1 ? '\n' : ' ');
     }
 }
-
+ 
 int BEVDet::InitEngine(const std::string &engine_file){
-
+ 
     if(DeserializeTRTEngine(engine_file, &trt_engine)){
         return EXIT_FAILURE;
     }
-
+ 
     if(trt_engine == nullptr){
         std::cerr << "Failed to deserialize engine file!" << std::endl;
         return EXIT_FAILURE;
     }
     trt_context = trt_engine->createExecutionContext();
-
+ 
     if (trt_context == nullptr) {
         std::cerr << "Failed to create TensorRT Execution Context!" << std::endl;
         return EXIT_FAILURE;
     }
-
+ 
     // set bindings
     std::vector<nvinfer1::Dims> shapes{
         {4, {N_img, 3, src_img_h, src_img_w  / 4}},
@@ -412,13 +425,11 @@ int BEVDet::InitEngine(const std::string &engine_file){
         {3, {1, adj_num, transform_size}},
         {2, {1, 1}}
     };
-
-
-
+ 
     for(size_t i = 0; i < shapes.size(); i++){
         trt_context->setInputShape(trt_engine->getIOTensorName(i), shapes[i]);
     }
-
+ 
     buffer_map.clear();
     for(auto i = 0; i < trt_engine->getNbIOTensors(); i++){
         auto dim = trt_context->getTensorShape(trt_engine->getIOTensorName(i));
@@ -428,7 +439,7 @@ int BEVDet::InitEngine(const std::string &engine_file){
         print_dim(dim);
     }
     std::cout << std::endl;
-
+ 
     return EXIT_SUCCESS;
 }
 void save_tensor(size_t size, const void * ptr, const std::string& file){
@@ -439,18 +450,18 @@ void save_tensor(size_t size, const void * ptr, const std::string& file){
     out.close();
     delete[] tensor;
 }
-
-
-int BEVDet::DeserializeTRTEngine(const std::string &engine_file, 
+ 
+ 
+int BEVDet::DeserializeTRTEngine(const std::string &engine_file,
                                  nvinfer1::ICudaEngine **engine_ptr){
     int verbosity = static_cast<int>(nvinfer1::ILogger::Severity::kWARNING);
     std::stringstream engine_stream;
     engine_stream.seekg(0, engine_stream.beg);
-
+ 
     std::ifstream file(engine_file);
     engine_stream << file.rdbuf();
     file.close();
-
+ 
     nvinfer1::IRuntime* runtime = nvinfer1::createInferRuntime(g_logger_);
     if (runtime == nullptr) {
         std::string msg("Failed to build runtime parser!");
@@ -459,11 +470,11 @@ int BEVDet::DeserializeTRTEngine(const std::string &engine_file,
     }
     engine_stream.seekg(0, std::ios::end);
     const int engine_size = engine_stream.tellg();
-
-    engine_stream.seekg(0, std::ios::beg); 
+ 
+    engine_stream.seekg(0, std::ios::beg);
     void* engine_str = malloc(engine_size);
     engine_stream.read((char*)engine_str, engine_size);
-    
+   
     nvinfer1::ICudaEngine *engine = runtime->deserializeCudaEngine(engine_str, engine_size);
     if (engine == nullptr) {
         std::string msg("Failed to build engine parser!");
@@ -472,7 +483,7 @@ int BEVDet::DeserializeTRTEngine(const std::string &engine_file,
     }
     *engine_ptr = engine;
     for (int bi = 0; bi < engine->getNbIOTensors(); bi++) {
-        if (engine->getTensorIOMode(engine->getIOTensorName(bi)) == nvinfer1::TensorIOMode::kINPUT) {
+        if (engine->getTensorIOMode(engine->getIOTensorName(bi)) == nvinfer1::TensorIOMode::kINPUT){
             printf("Binding %d (%s): Input. \n", bi, engine->getIOTensorName(bi));
         }
         else{
@@ -481,43 +492,43 @@ int BEVDet::DeserializeTRTEngine(const std::string &engine_file,
     }
     return EXIT_SUCCESS;
 }
-
-
-void BEVDet::GetAdjBEVFeature(const std::string &curr_scene_token, 
+ 
+ 
+void BEVDet::GetAdjBEVFeature(const std::string &curr_scene_token,
                          const Eigen::Quaternion<float> &ego2global_rot,
                          const Eigen::Translation3f &ego2global_trans) {
-
+ 
     int flag = 1;
     if(adj_frame_ptr->lastScenesToken() != curr_scene_token){
         adj_frame_ptr->reset();
         flag = 0;
     }
-
-    // idx越小, adj_bevfeat越新 
+ 
+    // idx越小, adj_bevfeat越新
     for(int i = 0; i < adj_num; i++){
         const void* adj_buffer = adj_frame_ptr->getFrameBuffer(i);
-
+ 
         size_t buf_size = trt_buffer_sizes[buffer_map["adj_feats"]] / adj_num;
-
+ 
         CHECK_CUDA(cudaMemcpy((char*)trt_buffer_dev[buffer_map["adj_feats"]] + i * buf_size,
                                 adj_buffer, buf_size, cudaMemcpyDeviceToDevice));
-
+ 
         Eigen::Quaternion<float> adj_ego2global_rot;
         Eigen::Translation3f adj_ego2global_trans;
         adj_frame_ptr->getEgo2Global(i, adj_ego2global_rot, adj_ego2global_trans);
-        
-        GetCurr2AdjTransform(ego2global_rot, 
-                            adj_ego2global_rot, 
+       
+        GetCurr2AdjTransform(ego2global_rot,
+                            adj_ego2global_rot,
                             ego2global_trans,
-                            adj_ego2global_trans, 
+                            adj_ego2global_trans,
                             (float *)trt_buffer_dev[buffer_map["transforms"]] + i * transform_size);
     }
-    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["flag"]], &flag, 
+    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["flag"]], &flag,
                         trt_buffer_sizes[buffer_map["flag"]], cudaMemcpyHostToDevice));
-
+ 
 }
-
-
+ 
+ 
 void BEVDet::GetCurr2AdjTransform(const Eigen::Quaternion<float> &curr_ego2global_rot,
                                 const Eigen::Quaternion<float> &adj_ego2global_rot,
                                 const Eigen::Translation3f &curr_ego2global_trans,
@@ -525,7 +536,7 @@ void BEVDet::GetCurr2AdjTransform(const Eigen::Quaternion<float> &curr_ego2globa
                                 float* transform_dev){
     Eigen::Matrix4f curr_e2g_transform;
     Eigen::Matrix4f adj_e2g_transform;
-
+ 
     for(int i = 0; i < 3; i++){
         for(int j = 0; j < 3; j++){
             curr_e2g_transform(i, j) = curr_ego2global_rot.matrix()(i, j);
@@ -535,13 +546,13 @@ void BEVDet::GetCurr2AdjTransform(const Eigen::Quaternion<float> &curr_ego2globa
     for(int i = 0; i < 3; i++){
         curr_e2g_transform(i, 3) = curr_ego2global_trans.vector()(i);
         adj_e2g_transform(i, 3) = adj_ego2global_trans.vector()(i);
-
+ 
         curr_e2g_transform(3, i) = 0.f;
         adj_e2g_transform(3, i) = 0.f;
     }
     curr_e2g_transform(3, 3) = 1.f;
     adj_e2g_transform(3, 3) = 1.f;
-
+ 
     Eigen::Matrix4f currEgo2adjEgo = adj_e2g_transform.inverse() * curr_e2g_transform;
     Eigen::Matrix3f currEgo2adjEgo_2d;
     for(int i = 0; i < 2; i++){
@@ -554,80 +565,78 @@ void BEVDet::GetCurr2AdjTransform(const Eigen::Quaternion<float> &curr_ego2globa
     currEgo2adjEgo_2d(2, 2) = 1.f;
     currEgo2adjEgo_2d(0, 2) = currEgo2adjEgo(0, 3);
     currEgo2adjEgo_2d(1, 2) = currEgo2adjEgo(1, 3);
-
+ 
     Eigen::Matrix3f gridbev2egobev;
     gridbev2egobev(0, 0) = x_step;
     gridbev2egobev(1, 1) = y_step;
     gridbev2egobev(0, 2) = x_start;
     gridbev2egobev(1, 2) = y_start;
     gridbev2egobev(2, 2) = 1.f;
-
+ 
     gridbev2egobev(0, 1) = 0.f;
     gridbev2egobev(1, 0) = 0.f;
     gridbev2egobev(2, 0) = 0.f;
     gridbev2egobev(2, 1) = 0.f;
-
+ 
     Eigen::Matrix3f currgrid2adjgrid = gridbev2egobev.inverse() * currEgo2adjEgo_2d * gridbev2egobev;
-
+ 
     CHECK_CUDA(cudaMemcpy(transform_dev, Eigen::Matrix3f(currgrid2adjgrid.transpose()).data(),
-                                    transform_size * sizeof(float), cudaMemcpyHostToDevice));
-
+                                   transform_size * sizeof(float), cudaMemcpyHostToDevice));
 }
-
-
+ 
 
 int BEVDet::DoInfer(const camsData& cam_data, std::vector<Box> &out_detections, float &cost_time,
                                                                                     int idx){
-    
+   
     printf("-------------------%d-------------------\n", idx + 1);
-
-    printf("scenes_token : %s, timestamp : %lld\n", cam_data.param.scene_token.data(), 
+ 
+    printf("scenes_token : %s, timestamp : %lld\n", cam_data.param.scene_token.data(),
                                 cam_data.param.timestamp);
-
+ 
     auto start = high_resolution_clock::now();
-    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["images"]], cam_data.imgs_dev, 
+    CHECK_CUDA(cudaMemcpy(trt_buffer_dev[buffer_map["images"]], cam_data.imgs_dev,
                 trt_buffer_sizes[buffer_map["images"]], cudaMemcpyDeviceToDevice));
-
-    InitCamParams(cam_data.param.cams2ego_rot, 
-                cam_data.param.cams2ego_trans, 
+ 
+    InitCamParams(cam_data.param.cams2ego_rot,
+                cam_data.param.cams2ego_trans,
                 cam_data.param.cams_intrin);
-
-    GetAdjBEVFeature(cam_data.param.scene_token, 
-                    cam_data.param.ego2global_rot, 
+ 
+    GetAdjBEVFeature(cam_data.param.scene_token,
+                    cam_data.param.ego2global_rot,
                     cam_data.param.ego2global_trans);
-
-    if(!trt_context->executeV2(trt_buffer_dev)){ 
+ 
+    if(!trt_context->executeV2(trt_buffer_dev)){
         printf("BEVDet forward failing!\n");
     }
-
+ 
     adj_frame_ptr->saveFrameBuffer(trt_buffer_dev[buffer_map["curr_bevfeat"]],
-                                    cam_data.param.scene_token, 
-                                    cam_data.param.ego2global_rot, 
+                                    cam_data.param.scene_token,
+                                    cam_data.param.ego2global_rot,
                                     cam_data.param.ego2global_trans);
-
-
+ 
+ 
     auto end = high_resolution_clock::now();
-
+ 
     postprocess_ptr->DoPostprocess(post_buffer, out_detections);
+
     CHECK_CUDA(cudaDeviceSynchronize());
-
+ 
     auto post_end = high_resolution_clock::now();
-
+ 
     duration<double> infer_t = post_end - start;
     duration<double> engine_t = end - start;
     duration<double> post_t = post_end - end;
-
+ 
     cost_time = infer_t.count() * 1000;
     printf("TRT-Engine  : %.5lf ms\n", engine_t.count() * 1000);
     printf("Postprocess : %.5lf ms\n", post_t.count() * 1000);
-    printf("Inference   : %.5lf ms\n", infer_t.count() * 1000);
-
-    printf("Detect %ld objects\n", out_detections.size());
-
+    printf("Inference   : %.5lf ms\n", infer_t.count() * 1000); 
+    
+    printf("Detected %ld objects\n", out_detections.size());
+    
     return EXIT_SUCCESS;
 }
-
-
+ 
 void BEVDet::exportEngine(const std::string & onnx_file, const std::string & trt_file)
 {
     CHECK_CUDA(cudaSetDevice(0));
@@ -636,12 +645,12 @@ void BEVDet::exportEngine(const std::string & onnx_file, const std::string & trt
         {4, {6, 3, 900, 400}}, {1, {3}},      {1, {3}},    {3, {1, 6, 27}}, {1, {200000}},
         {1, {200000}},         {1, {200000}}, {1, {8000}}, {1, {8000}},     {5, {1, 8, 80, 128, 128}},
         {3, {1, 8, 6}},        {2, {1, 1}}};
-
+ 
     std::vector<nvinfer1::Dims> opt_shapes{
         {4, {6, 3, 900, 400}}, {1, {3}},      {1, {3}},     {3, {1, 6, 27}}, {1, {356760}},
         {1, {356760}},         {1, {356760}}, {1, {13360}}, {1, {13360}},    {5, {1, 8, 80, 128, 128}},
         {3, {1, 8, 6}},        {2, {1, 1}}};
-
+ 
     std::vector<nvinfer1::Dims> max_shapes{
         {4, {6, 3, 900, 400}}, {1, {3}},      {1, {3}},     {3, {1, 6, 27}}, {1, {370000}},
         {1, {370000}},         {1, {370000}}, {1, {14000}}, {1, {14000}},    {5, {1, 8, 80, 128, 128}},
@@ -651,11 +660,16 @@ void BEVDet::exportEngine(const std::string & onnx_file, const std::string & trt
     nvinfer1::IOptimizationProfile * profile = builder->createOptimizationProfile();
     nvinfer1::IBuilderConfig * config = builder->createBuilderConfig();
     config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, 3UL << 32UL);
-
-    config->setFlag(nvinfer1::BuilderFlag::kFP16);
-
+ 
+    if (precision_ == "fp16") {
+        config->setFlag(nvinfer1::BuilderFlag::kFP16);
+        printf("BEVDet Building engine with FP16 precision\n");
+    } else {
+        printf("BEVDet Building engine with FP32 precision\n");
+    }
+ 
     nvonnxparser::IParser * parser = nvonnxparser::createParser(*network, g_logger_);
-
+ 
     if (!parser->parseFromFile(onnx_file.c_str(), static_cast<int>(g_logger_.reportable_severity))) {
         printf("BEVDet Failed parsing .onnx file!");
     for (int i = 0; i < parser->getNbErrors(); ++i) {
@@ -665,7 +679,7 @@ void BEVDet::exportEngine(const std::string & onnx_file, const std::string & trt
         return;
     }
     printf("BEVDet Succeeded parsing .onnx file!");
-
+ 
     for (size_t i = 0; i < min_shapes.size(); i++) {
         nvinfer1::ITensor * it = network->getInput(i);
         profile->setDimensions(it->getName(), nvinfer1::OptProfileSelector::kMIN, min_shapes[i]);
@@ -673,14 +687,14 @@ void BEVDet::exportEngine(const std::string & onnx_file, const std::string & trt
         profile->setDimensions(it->getName(), nvinfer1::OptProfileSelector::kMAX, max_shapes[i]);
     }
     config->addOptimizationProfile(profile);
-
+ 
     nvinfer1::IHostMemory * engineString = builder->buildSerializedNetwork(*network, *config);
     if (engineString == nullptr || engineString->size() == 0) {
         printf("BEVDet Failed building serialized engine!");
         return;
     }
     printf("BEVDet Succeeded building serialized engine!");
-
+ 
     nvinfer1::IRuntime * runtime{nvinfer1::createInferRuntime(g_logger_)};
     engine = runtime->deserializeCudaEngine(engineString->data(), engineString->size());
     if (engine == nullptr) {
@@ -688,7 +702,7 @@ void BEVDet::exportEngine(const std::string & onnx_file, const std::string & trt
         return;
     }
     printf("BEVDet Succeeded building engine!");
-
+ 
     std::ofstream engineFile(trt_file, std::ios::binary);
     if (!engineFile) {
         printf("BEVDet Failed opening file to write");
@@ -701,17 +715,17 @@ void BEVDet::exportEngine(const std::string & onnx_file, const std::string & trt
     }
     printf("BEVDet Succeeded saving .engine file!");
 }
-
+ 
 BEVDet::~BEVDet(){
-
+ 
     for(int i = 0; i < trt_engine->getNbIOTensors(); i++){
         CHECK_CUDA(cudaFree(trt_buffer_dev[i]));
     }
     delete[] trt_buffer_dev;
     delete[] post_buffer;
-
+ 
     delete[] cam_params_host;
-
-    delete trt_context;
+ 
+    delete trt_context;  
     delete trt_engine;
 }

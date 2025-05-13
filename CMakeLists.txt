@@ -64,6 +64,7 @@ set(bevdet_source_files
   src/bevpool_plugin.cu
   src/alignbev_plugin.cu
   src/gatherbev_plugin.cu
+  src/precision_config.cpp
 )
 
 cuda_add_library(${PROJECT_NAME} SHARED

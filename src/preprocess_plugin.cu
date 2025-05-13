@@ -19,7 +19,9 @@
 #include <cuda_runtime_api.h>
 
 #include "common.h"
-#include <iostream>
+
+#include "precision_config.h"
+
 
 // kernel for GPU
 
@@ -96,10 +98,12 @@ int32_t PreprocessPlugin::getNbOutputs() const noexcept {
     return 1;
 }
  
+
 DataType PreprocessPlugin::getOutputDataType(int32_t index, DataType const *inputTypes, 
                                                                 int32_t nbInputs) const noexcept {
-    // return DataType::kHALF;
-    return DataType::kFLOAT;
+
+    return bevdet_precision::isFloat16() ? DataType::kHALF : DataType::kFLOAT;
+    
 }
 
 DimsExprs PreprocessPlugin::getOutputDimensions(int32_t outputIndex, const DimsExprs *inputs, 
@@ -138,10 +142,12 @@ bool PreprocessPlugin::supportsFormatCombination(int32_t pos, const PluginTensor
                 inOut[2].format == TensorFormat::kLINEAR;
         break;
     case 3: // 输出 img tensor
-        res = (inOut[3].type == DataType::kFLOAT || inOut[3].type == DataType::kHALF) && 
-                inOut[3].format == inOut[0].format;
-
-        // res = inOut[3].type == DataType::kHALF && inOut[3].format == inOut[0].format;
+        if (bevdet_precision::isFloat16()) {
+            res = inOut[3].type == DataType::kHALF && inOut[3].format == inOut[0].format;
+        } else {
+            res = inOut[3].type == DataType::kFLOAT && inOut[3].format == inOut[0].format;
+        }
+        
         break;
     default: 
         res = false;
@@ -184,7 +190,7 @@ int32_t PreprocessPlugin::enqueue(const PluginTensorDesc *inputDesc, const Plugi
     switch (int(outputDesc[0].type))
     {
     case int(DataType::kFLOAT):
-        // printf("pre : float\n");
+        printf("pre : float\n");
         preprocess_kernel<<<grid, block, 0, stream>>>(
                                                 reinterpret_cast<const uint8_t *>(inputs[0]),
                                                 reinterpret_cast<float *>(outputs[0]),
@@ -205,7 +211,7 @@ int32_t PreprocessPlugin::enqueue(const PluginTensorDesc *inputDesc, const Plugi
                                                 n_img);
         break;
     case int(DataType::kHALF):
-        // printf("pre : half\n");
+        printf("pre : half\n");
         preprocess_kernel<<<grid, block, 0, stream>>>(
                                                 reinterpret_cast<const uint8_t *>(inputs[0]),
                                                 reinterpret_cast<__half *>(outputs[0]),
@@ -229,6 +235,7 @@ int32_t PreprocessPlugin::enqueue(const PluginTensorDesc *inputDesc, const Plugi
     default: // should NOT be here
         printf("\tUnsupport datatype!\n");
     }
+    
     return 0;
 }
 
@@ -302,6 +309,14 @@ PreprocessPluginCreator::~PreprocessPluginCreator() {
 IPluginV2DynamicExt *PreprocessPluginCreator::createPlugin(const char *name, 
                                     const PluginFieldCollection *fc) noexcept {
     
+    // Add safety check for invalid pointer
+    // if (!fc || reinterpret_cast<uintptr_t>(fc) < 0x1000) {
+    //     // Create plugin with default values if pointer is invalid
+    //     PreprocessPlugin *pObj = new PreprocessPlugin(name, 0, 0, 1.0f);
+    //     pObj->setPluginNamespace(namespace_.c_str());
+    //     return pObj;
+    // }
+
     const PluginField *fields = fc->fields;
 
     int crop_h = -1;

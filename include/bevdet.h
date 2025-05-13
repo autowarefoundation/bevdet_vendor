@@ -112,7 +112,8 @@ public:
                                     std::vector<Eigen::Quaternion<float>> _cams2ego_rot, 
                                     std::vector<Eigen::Translation3f> _cams2ego_trans,
                                     const std::string & onnx_file,
-                                    const std::string &engine_file);
+                                    const std::string &engine_file,
+                                    const std::string &precision = "fp16");
   
     int DoInfer(const camsData &cam_data,  std::vector<Box> &out_detections, 
                                                             float &cost_time, int idx=-1);
@@ -196,6 +197,7 @@ private:
     bool use_adj;
     int adj_num;
 
+    std::string precision_; // Store precision setting
 
     int class_num;
     float score_thresh;

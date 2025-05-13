@@ -19,6 +19,8 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime_api.h>
 
+#include "precision_config.h"
+
 // input[0] depth            b*n x d x h x w
 // input[1] feat             b*n x c x h x w
 // input[2] ranks_depth      m
@@ -92,9 +94,12 @@ int32_t BEVPoolPlugin::getNbOutputs() const noexcept {
     return 1;
 }
  
+
 DataType BEVPoolPlugin::getOutputDataType(int32_t index, DataType const *inputTypes, 
                                                                 int32_t nbInputs) const noexcept {
-    return DataType::kFLOAT;
+
+    return bevdet_precision::isFloat16() ? DataType::kHALF : DataType::kFLOAT;
+
 }
 
 DimsExprs BEVPoolPlugin::getOutputDimensions(int32_t outputIndex, const DimsExprs *inputs, 
@@ -124,15 +129,21 @@ bool BEVPoolPlugin::supportsFormatCombination(int32_t pos, const PluginTensorDes
                                                     int32_t nbInputs, int32_t nbOutputs) noexcept {
     // depth
     if(pos == 0){
-        return (inOut[pos].type == DataType::kFLOAT || inOut[pos].type == DataType::kHALF) &&
-                 inOut[pos].format == TensorFormat::kLINEAR;
+        if (bevdet_precision::isFloat16()) {
+            return inOut[pos].type == DataType::kHALF && inOut[pos].format == TensorFormat::kLINEAR;
+        } else {
+            return inOut[pos].type == DataType::kFLOAT && inOut[pos].format == TensorFormat::kLINEAR;
+        }
     }
     else if(pos == 1){ // feat
         return inOut[0].type == inOut[1].type && inOut[pos].format == TensorFormat::kLINEAR;
     }
     else if(pos == 7){ // out
-        return (inOut[pos].type == DataType::kFLOAT || inOut[pos].type == DataType::kHALF) &&
-                inOut[pos].format == TensorFormat::kLINEAR;
+        if (bevdet_precision::isFloat16()) {
+            return inOut[pos].type == DataType::kHALF && inOut[pos].format == TensorFormat::kLINEAR;
+        } else {
+            return inOut[pos].type == DataType::kFLOAT && inOut[pos].format == TensorFormat::kLINEAR;
+        }
     }
     else{
         return inOut[pos].type == DataType::kINT32 && inOut[pos].format == TensorFormat::kLINEAR;
@@ -172,11 +183,14 @@ int32_t BEVPoolPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginTe
     // printf("BEVPool input  feat %s\n", dataTypeToString(inputDesc[1].type).c_str());
     // printf("BEVPool output feat %s\n", dataTypeToString(outputDesc[0].type).c_str());
 
+    // printf("BEVPool: input depth type=%d, input feat type=%d, output type=%d\n", 
+    //    int(inputDesc[0].type), int(inputDesc[1].type), int(outputDesc[0].type));
+
     switch (int(outputDesc[0].type))
     {
     case int(DataType::kFLOAT):
         if(inputDesc[0].type == DataType::kFLOAT){
-            // printf("bevpool : fp32 fp32\n");
+            printf("bevpool : fp32 fp32\n");
             bev_pool_v2_kernel<float, float><<<grid, block, 0, stream>>>(
                                                         channel, 
                                                         n_intervals,
@@ -192,7 +206,7 @@ int32_t BEVPoolPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginTe
                                                         reinterpret_cast<float *>(outputs[0]));
         }
         else{
-            // printf("bevpool : fp16 fp32\n");
+            printf("bevpool : fp16 fp32\n");
             bev_pool_v2_kernel<__half, float><<<grid, block, 0, stream>>>(
                                                         channel, 
                                                         n_intervals,
@@ -210,7 +224,7 @@ int32_t BEVPoolPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginTe
         break;
     case int(DataType::kHALF):
         if(inputDesc[0].type == DataType::kFLOAT){
-            // printf("bevpool : fp32 fp16\n");
+            printf("bevpool : fp32 fp16\n");
             bev_pool_v2_kernel<float, __half><<<grid, block, 0, stream>>>(
                                                         channel, 
                                                         n_intervals,
@@ -226,7 +240,7 @@ int32_t BEVPoolPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginTe
                                                         reinterpret_cast<__half *>(outputs[0]));
         }
         else{
-            // printf("bevpool : fp16 fp16\n");
+            printf("bevpool : fp16 fp16\n");
             bev_pool_v2_kernel<__half, __half><<<grid, block, 0, stream>>>(
                                                         channel, 
                                                         n_intervals,
@@ -245,6 +259,7 @@ int32_t BEVPoolPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginTe
     default: // should NOT be here
         printf("\tUnsupport datatype!\n");
     }
+
     return 0;
 }
 
