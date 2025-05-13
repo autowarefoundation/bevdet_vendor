@@ -82,7 +82,7 @@ __inline__ size_t dataTypeToSize(nvinfer1::DataType dataType)
     }
 }
 
-__inline__ std::string shapeToString(nvinfer1::Dims32 dim)
+__inline__ std::string shapeToString(nvinfer1::Dims dim)
 {
     std::string output("(");
     if (dim.nbDims == 0)

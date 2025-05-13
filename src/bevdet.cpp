@@ -219,20 +219,20 @@ void BEVDet::InitParams(const std::string &config_file){
 
 void BEVDet::MallocDeviceMemory(){
 
-    trt_buffer_sizes.resize(trt_engine->getNbBindings());
-    trt_buffer_dev = (void**)new void*[trt_engine->getNbBindings()];
-    for(int i = 0; i < trt_engine->getNbBindings(); i++){
-        nvinfer1::Dims32 dim = trt_context->getBindingDimensions(i);
+    trt_buffer_sizes.resize(trt_engine->getNbIOTensors());
+    trt_buffer_dev = (void**)new void*[trt_engine->getNbIOTensors()];
+    for(int i = 0; i < trt_engine->getNbIOTensors(); i++){
+        nvinfer1::Dims dim = trt_context->getTensorShape(trt_engine->getIOTensorName(i));
         size_t size = 1;
         for(int j = 0; j < dim.nbDims; j++){
             size *= dim.d[j];
         }
-        size *= dataTypeToSize(trt_engine->getBindingDataType(i));
+        size *= dataTypeToSize(trt_engine->getTensorDataType(trt_engine->getIOTensorName(i)));
         trt_buffer_sizes[i] = size;
         CHECK_CUDA(cudaMalloc(&trt_buffer_dev[i], size));
     }
 
-    std::cout << "img num binding : " << trt_engine->getNbBindings() << std::endl;
+    std::cout << "img num binding : " << trt_engine->getNbIOTensors() << std::endl;
 
     post_buffer = (void**)new void*[class_num_pre_task.size() * 6];
     for(size_t i = 0; i < class_num_pre_task.size(); i++){
@@ -376,7 +376,7 @@ void BEVDet::InitViewTransformer(std::shared_ptr<int> &ranks_bev_ptr,
 
 void print_dim(nvinfer1::Dims dim){
     for(auto i = 0; i < dim.nbDims; i++){
-        printf("%d%c", dim.d[i], i == dim.nbDims - 1 ? '\n' : ' ');
+        printf("%ld%c", dim.d[i], i == dim.nbDims - 1 ? '\n' : ' ');
     }
 }
 
@@ -398,7 +398,7 @@ int BEVDet::InitEngine(const std::string &engine_file){
     }
 
     // set bindings
-    std::vector<nvinfer1::Dims32> shapes{
+    std::vector<nvinfer1::Dims> shapes{
         {4, {N_img, 3, src_img_h, src_img_w  / 4}},
         {1, {3}},
         {1, {3}},
@@ -416,13 +416,13 @@ int BEVDet::InitEngine(const std::string &engine_file){
 
 
     for(size_t i = 0; i < shapes.size(); i++){
-         trt_context->setBindingDimensions(i, shapes[i]);
+        trt_context->setInputShape(trt_engine->getIOTensorName(i), shapes[i]);
     }
 
     buffer_map.clear();
-    for(auto i = 0; i < trt_engine->getNbBindings(); i++){
-        auto dim = trt_context->getBindingDimensions(i);
-        auto name = trt_engine->getBindingName(i);
+    for(auto i = 0; i < trt_engine->getNbIOTensors(); i++){
+        auto dim = trt_context->getTensorShape(trt_engine->getIOTensorName(i));
+        auto name = trt_engine->getIOTensorName(i);
         buffer_map[name] = i;
         std::cout << name << " : ";
         print_dim(dim);
@@ -464,19 +464,19 @@ int BEVDet::DeserializeTRTEngine(const std::string &engine_file,
     void* engine_str = malloc(engine_size);
     engine_stream.read((char*)engine_str, engine_size);
     
-    nvinfer1::ICudaEngine *engine = runtime->deserializeCudaEngine(engine_str, engine_size, NULL);
+    nvinfer1::ICudaEngine *engine = runtime->deserializeCudaEngine(engine_str, engine_size);
     if (engine == nullptr) {
         std::string msg("Failed to build engine parser!");
         g_logger_.log(nvinfer1::ILogger::Severity::kERROR, msg.c_str());
         return EXIT_FAILURE;
     }
     *engine_ptr = engine;
-    for (int bi = 0; bi < engine->getNbBindings(); bi++) {
-        if (engine->bindingIsInput(bi) == true){
-            printf("Binding %d (%s): Input. \n", bi, engine->getBindingName(bi));
+    for (int bi = 0; bi < engine->getNbIOTensors(); bi++) {
+        if (engine->getTensorIOMode(engine->getIOTensorName(bi)) == nvinfer1::TensorIOMode::kINPUT) {
+            printf("Binding %d (%s): Input. \n", bi, engine->getIOTensorName(bi));
         }
         else{
-            printf("Binding %d (%s): Output. \n", bi, engine->getBindingName(bi));
+            printf("Binding %d (%s): Output. \n", bi, engine->getIOTensorName(bi));
         }
     }
     return EXIT_SUCCESS;
@@ -632,17 +632,17 @@ void BEVDet::exportEngine(const std::string & onnx_file, const std::string & trt
 {
     CHECK_CUDA(cudaSetDevice(0));
     nvinfer1::ICudaEngine * engine = nullptr;
-    std::vector<nvinfer1::Dims32> min_shapes{
+    std::vector<nvinfer1::Dims> min_shapes{
         {4, {6, 3, 900, 400}}, {1, {3}},      {1, {3}},    {3, {1, 6, 27}}, {1, {200000}},
         {1, {200000}},         {1, {200000}}, {1, {8000}}, {1, {8000}},     {5, {1, 8, 80, 128, 128}},
         {3, {1, 8, 6}},        {2, {1, 1}}};
 
-    std::vector<nvinfer1::Dims32> opt_shapes{
+    std::vector<nvinfer1::Dims> opt_shapes{
         {4, {6, 3, 900, 400}}, {1, {3}},      {1, {3}},     {3, {1, 6, 27}}, {1, {356760}},
         {1, {356760}},         {1, {356760}}, {1, {13360}}, {1, {13360}},    {5, {1, 8, 80, 128, 128}},
         {3, {1, 8, 6}},        {2, {1, 1}}};
 
-    std::vector<nvinfer1::Dims32> max_shapes{
+    std::vector<nvinfer1::Dims> max_shapes{
         {4, {6, 3, 900, 400}}, {1, {3}},      {1, {3}},     {3, {1, 6, 27}}, {1, {370000}},
         {1, {370000}},         {1, {370000}}, {1, {14000}}, {1, {14000}},    {5, {1, 8, 80, 128, 128}},
         {3, {1, 8, 6}},        {2, {1, 1}}};
@@ -704,7 +704,7 @@ void BEVDet::exportEngine(const std::string & onnx_file, const std::string & trt
 
 BEVDet::~BEVDet(){
 
-    for(int i = 0; i < trt_engine->getNbBindings(); i++){
+    for(int i = 0; i < trt_engine->getNbIOTensors(); i++){
         CHECK_CUDA(cudaFree(trt_buffer_dev[i]));
     }
     delete[] trt_buffer_dev;
@@ -712,6 +712,6 @@ BEVDet::~BEVDet(){
 
     delete[] cam_params_host;
 
-    trt_context->destroy();
-    trt_engine->destroy();
+    delete trt_context;
+    delete trt_engine;
 }
