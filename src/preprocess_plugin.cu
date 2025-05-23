@@ -190,7 +190,7 @@ int32_t PreprocessPlugin::enqueue(const PluginTensorDesc *inputDesc, const Plugi
     switch (int(outputDesc[0].type))
     {
     case int(DataType::kFLOAT):
-        printf("pre : float\n");
+        // printf("pre : float\n");
         preprocess_kernel<<<grid, block, 0, stream>>>(
                                                 reinterpret_cast<const uint8_t *>(inputs[0]),
                                                 reinterpret_cast<float *>(outputs[0]),
@@ -211,7 +211,7 @@ int32_t PreprocessPlugin::enqueue(const PluginTensorDesc *inputDesc, const Plugi
                                                 n_img);
         break;
     case int(DataType::kHALF):
-        printf("pre : half\n");
+        // printf("pre : half\n");
         preprocess_kernel<<<grid, block, 0, stream>>>(
                                                 reinterpret_cast<const uint8_t *>(inputs[0]),
                                                 reinterpret_cast<__half *>(outputs[0]),
@@ -308,14 +308,6 @@ PreprocessPluginCreator::~PreprocessPluginCreator() {
 
 IPluginV2DynamicExt *PreprocessPluginCreator::createPlugin(const char *name, 
                                     const PluginFieldCollection *fc) noexcept {
-    
-    // Add safety check for invalid pointer
-    // if (!fc || reinterpret_cast<uintptr_t>(fc) < 0x1000) {
-    //     // Create plugin with default values if pointer is invalid
-    //     PreprocessPlugin *pObj = new PreprocessPlugin(name, 0, 0, 1.0f);
-    //     pObj->setPluginNamespace(namespace_.c_str());
-    //     return pObj;
-    // }
 
     const PluginField *fields = fc->fields;
 

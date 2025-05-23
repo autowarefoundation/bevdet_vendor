@@ -201,7 +201,7 @@ int32_t AlignBEVPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginT
     {
     case int(DataType::kFLOAT):
         if(inputDesc[0].type == DataType::kFLOAT){
-            printf("align : fp32, fp32\n");
+            // printf("align : fp32, fp32\n");
             align_bev_kernel<float, float><<<GET_BLOCKS(count), NUM_THREADS, 0, stream>>>(
                                                     count, 
                                                     reinterpret_cast<const float *>(inputs[0]), 
@@ -210,7 +210,7 @@ int32_t AlignBEVPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginT
                                                     output_desc);
         }
         else{
-            printf("align : fp16, fp32\n");
+            // printf("align : fp16, fp32\n");
             align_bev_kernel<__half, float><<<GET_BLOCKS(count), NUM_THREADS, 0, stream>>>(
                                                     count, 
                                                     reinterpret_cast<const __half *>(inputs[0]), 
@@ -221,7 +221,7 @@ int32_t AlignBEVPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginT
         break;
     case int(DataType::kHALF):
         if(inputDesc[0].type == DataType::kFLOAT){
-            printf("align : fp32, fp16\n");
+            // printf("align : fp32, fp16\n");
             align_bev_kernel<float, __half><<<GET_BLOCKS(count), NUM_THREADS, 0, stream>>>(
                                                     count, 
                                                     reinterpret_cast<const float *>(inputs[0]), 
@@ -230,7 +230,7 @@ int32_t AlignBEVPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginT
                                                     output_desc);
         }
         else{
-            printf("align : fp16, fp16\n");
+            // printf("align : fp16, fp16\n");
             align_bev_kernel<__half, __half><<<GET_BLOCKS(count), NUM_THREADS, 0, stream>>>(
                                                     count, 
                                                     reinterpret_cast<const __half *>(inputs[0]), 

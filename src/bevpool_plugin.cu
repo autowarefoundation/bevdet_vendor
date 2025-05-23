@@ -190,7 +190,7 @@ int32_t BEVPoolPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginTe
     {
     case int(DataType::kFLOAT):
         if(inputDesc[0].type == DataType::kFLOAT){
-            printf("bevpool : fp32 fp32\n");
+            // printf("bevpool : fp32 fp32\n");
             bev_pool_v2_kernel<float, float><<<grid, block, 0, stream>>>(
                                                         channel, 
                                                         n_intervals,
@@ -206,7 +206,7 @@ int32_t BEVPoolPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginTe
                                                         reinterpret_cast<float *>(outputs[0]));
         }
         else{
-            printf("bevpool : fp16 fp32\n");
+            // printf("bevpool : fp16 fp32\n");
             bev_pool_v2_kernel<__half, float><<<grid, block, 0, stream>>>(
                                                         channel, 
                                                         n_intervals,
@@ -224,7 +224,7 @@ int32_t BEVPoolPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginTe
         break;
     case int(DataType::kHALF):
         if(inputDesc[0].type == DataType::kFLOAT){
-            printf("bevpool : fp32 fp16\n");
+            // printf("bevpool : fp32 fp16\n");
             bev_pool_v2_kernel<float, __half><<<grid, block, 0, stream>>>(
                                                         channel, 
                                                         n_intervals,
@@ -240,7 +240,7 @@ int32_t BEVPoolPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginTe
                                                         reinterpret_cast<__half *>(outputs[0]));
         }
         else{
-            printf("bevpool : fp16 fp16\n");
+            // printf("bevpool : fp16 fp16\n");
             bev_pool_v2_kernel<__half, __half><<<grid, block, 0, stream>>>(
                                                         channel, 
                                                         n_intervals,
