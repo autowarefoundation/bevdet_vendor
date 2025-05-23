@@ -31,7 +31,7 @@ cmake_minimum_required(VERSION 3.14.0)
 project(bevdet_vendor)
 
 add_compile_options(-std=c++17)
-set(CMAKE_CXX_FLAGS_RELEASE "-Wno-deprecated-declarations -O2")
+set(CMAKE_CXX_FLAGS_RELEASE "-Wno-deprecated-declarations -O3")
 set(CMAKE_BUILD_TYPE "RELEASE")
 
 find_package(ament_cmake REQUIRED)
