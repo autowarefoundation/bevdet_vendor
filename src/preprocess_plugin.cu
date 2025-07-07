@@ -19,7 +19,9 @@
 #include <cuda_runtime_api.h>
 
 #include "common.h"
-#include <iostream>
+
+#include "precision_config.h"
+
 
 // kernel for GPU
 
@@ -96,10 +98,12 @@ int32_t PreprocessPlugin::getNbOutputs() const noexcept {
     return 1;
 }
  
+
 DataType PreprocessPlugin::getOutputDataType(int32_t index, DataType const *inputTypes, 
                                                                 int32_t nbInputs) const noexcept {
-    // return DataType::kHALF;
-    return DataType::kFLOAT;
+
+    return bevdet_precision::isFloat16() ? DataType::kHALF : DataType::kFLOAT;
+    
 }
 
 DimsExprs PreprocessPlugin::getOutputDimensions(int32_t outputIndex, const DimsExprs *inputs, 
@@ -138,10 +142,12 @@ bool PreprocessPlugin::supportsFormatCombination(int32_t pos, const PluginTensor
                 inOut[2].format == TensorFormat::kLINEAR;
         break;
     case 3: // 输出 img tensor
-        res = (inOut[3].type == DataType::kFLOAT || inOut[3].type == DataType::kHALF) && 
-                inOut[3].format == inOut[0].format;
-
-        // res = inOut[3].type == DataType::kHALF && inOut[3].format == inOut[0].format;
+        if (bevdet_precision::isFloat16()) {
+            res = inOut[3].type == DataType::kHALF && inOut[3].format == inOut[0].format;
+        } else {
+            res = inOut[3].type == DataType::kFLOAT && inOut[3].format == inOut[0].format;
+        }
+        
         break;
     default: 
         res = false;
@@ -229,6 +235,7 @@ int32_t PreprocessPlugin::enqueue(const PluginTensorDesc *inputDesc, const Plugi
     default: // should NOT be here
         printf("\tUnsupport datatype!\n");
     }
+    
     return 0;
 }
 
@@ -301,7 +308,7 @@ PreprocessPluginCreator::~PreprocessPluginCreator() {
 
 IPluginV2DynamicExt *PreprocessPluginCreator::createPlugin(const char *name, 
                                     const PluginFieldCollection *fc) noexcept {
-    
+
     const PluginField *fields = fc->fields;
 
     int crop_h = -1;

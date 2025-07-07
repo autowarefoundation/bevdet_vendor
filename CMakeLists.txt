@@ -31,7 +31,7 @@ cmake_minimum_required(VERSION 3.14.0)
 project(bevdet_vendor)
 
 add_compile_options(-std=c++17)
-set(CMAKE_CXX_FLAGS_RELEASE "-Wno-deprecated-declarations -O2")
+set(CMAKE_CXX_FLAGS_RELEASE "-Wno-deprecated-declarations -O3")
 set(CMAKE_BUILD_TYPE "RELEASE")
 
 find_package(ament_cmake REQUIRED)
@@ -64,6 +64,7 @@ set(bevdet_source_files
   src/bevpool_plugin.cu
   src/alignbev_plugin.cu
   src/gatherbev_plugin.cu
+  src/precision_config.cpp
 )
 
 cuda_add_library(${PROJECT_NAME} SHARED

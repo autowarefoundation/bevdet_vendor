@@ -20,6 +20,8 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime_api.h>
 
+#include "precision_config.h"
+
 
 static inline __device__ bool within_bounds_2d(int h, int w, int H, int W){
     return h >= 0 && h < H && w >= 0 && w < W;
@@ -117,10 +119,12 @@ IPluginV2DynamicExt *AlignBEVPlugin::clone() const noexcept {
 int32_t AlignBEVPlugin::getNbOutputs() const noexcept {
     return 1;
 }
+
  
 DataType AlignBEVPlugin::getOutputDataType(int32_t index, DataType const *inputTypes, 
                                                                 int32_t nbInputs) const noexcept {
-    return DataType::kFLOAT; // FIXME 
+
+    return bevdet_precision::isFloat16() ? DataType::kHALF : DataType::kFLOAT;
 }
 
 DimsExprs AlignBEVPlugin::getOutputDimensions(int32_t outputIndex, const DimsExprs *inputs, 
@@ -133,15 +137,32 @@ bool AlignBEVPlugin::supportsFormatCombination(int32_t pos, const PluginTensorDe
                                                     int32_t nbInputs, int32_t nbOutputs) noexcept {
     // adj_feat  
     if(pos == 0){
-        return (inOut[pos].type == DataType::kFLOAT || inOut[pos].type == DataType::kHALF) &&
-                inOut[pos].format == TensorFormat::kLINEAR;
+        if (bevdet_precision::isFloat16()) {
+            return inOut[pos].type == DataType::kHALF && 
+                   inOut[pos].format == TensorFormat::kLINEAR;
+        } else {
+            return inOut[pos].type == DataType::kFLOAT && 
+                   inOut[pos].format == TensorFormat::kLINEAR;
+        }
+
     }    
     else if(pos == 2){ // out
-        return (inOut[pos].type == DataType::kFLOAT || inOut[pos].type == DataType::kHALF) &&
-                inOut[pos].format == TensorFormat::kLINEAR;
+        if (bevdet_precision::isFloat16()) {
+            return inOut[pos].type == DataType::kHALF && 
+                   inOut[pos].format == TensorFormat::kLINEAR;
+        } else {
+            return inOut[pos].type == DataType::kFLOAT && 
+                   inOut[pos].format == TensorFormat::kLINEAR;
+        }
+
     }
     else if(pos == 1){ // transform
-        return inOut[pos].type == DataType::kFLOAT && inOut[pos].format == TensorFormat::kLINEAR;
+        if (bevdet_precision::isFloat16()) {
+            return inOut[pos].type == DataType::kHALF && inOut[pos].format == TensorFormat::kLINEAR;
+        } else {
+            return inOut[pos].type == DataType::kFLOAT && inOut[pos].format == TensorFormat::kLINEAR;
+        }
+
     }
     return false;
 }
@@ -221,7 +242,6 @@ int32_t AlignBEVPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginT
     default: // should NOT be here
         printf("\tUnsupport datatype!\n");
     }
-
 
     return 0;
 }

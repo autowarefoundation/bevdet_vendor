@@ -19,6 +19,8 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime_api.h>
 
+#include "precision_config.h"
+
 // input[0] depth            b*n x d x h x w
 // input[1] feat             b*n x c x h x w
 // input[2] ranks_depth      m
@@ -92,9 +94,12 @@ int32_t BEVPoolPlugin::getNbOutputs() const noexcept {
     return 1;
 }
  
+
 DataType BEVPoolPlugin::getOutputDataType(int32_t index, DataType const *inputTypes, 
                                                                 int32_t nbInputs) const noexcept {
-    return DataType::kFLOAT;
+
+    return bevdet_precision::isFloat16() ? DataType::kHALF : DataType::kFLOAT;
+
 }
 
 DimsExprs BEVPoolPlugin::getOutputDimensions(int32_t outputIndex, const DimsExprs *inputs, 
@@ -124,15 +129,21 @@ bool BEVPoolPlugin::supportsFormatCombination(int32_t pos, const PluginTensorDes
                                                     int32_t nbInputs, int32_t nbOutputs) noexcept {
     // depth
     if(pos == 0){
-        return (inOut[pos].type == DataType::kFLOAT || inOut[pos].type == DataType::kHALF) &&
-                 inOut[pos].format == TensorFormat::kLINEAR;
+        if (bevdet_precision::isFloat16()) {
+            return inOut[pos].type == DataType::kHALF && inOut[pos].format == TensorFormat::kLINEAR;
+        } else {
+            return inOut[pos].type == DataType::kFLOAT && inOut[pos].format == TensorFormat::kLINEAR;
+        }
     }
     else if(pos == 1){ // feat
         return inOut[0].type == inOut[1].type && inOut[pos].format == TensorFormat::kLINEAR;
     }
     else if(pos == 7){ // out
-        return (inOut[pos].type == DataType::kFLOAT || inOut[pos].type == DataType::kHALF) &&
-                inOut[pos].format == TensorFormat::kLINEAR;
+        if (bevdet_precision::isFloat16()) {
+            return inOut[pos].type == DataType::kHALF && inOut[pos].format == TensorFormat::kLINEAR;
+        } else {
+            return inOut[pos].type == DataType::kFLOAT && inOut[pos].format == TensorFormat::kLINEAR;
+        }
     }
     else{
         return inOut[pos].type == DataType::kINT32 && inOut[pos].format == TensorFormat::kLINEAR;
@@ -171,6 +182,9 @@ int32_t BEVPoolPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginTe
     // printf("BEVPool input depth %s\n", dataTypeToString(inputDesc[0].type).c_str());
     // printf("BEVPool input  feat %s\n", dataTypeToString(inputDesc[1].type).c_str());
     // printf("BEVPool output feat %s\n", dataTypeToString(outputDesc[0].type).c_str());
+
+    // printf("BEVPool: input depth type=%d, input feat type=%d, output type=%d\n", 
+    //    int(inputDesc[0].type), int(inputDesc[1].type), int(outputDesc[0].type));
 
     switch (int(outputDesc[0].type))
     {
@@ -245,6 +259,7 @@ int32_t BEVPoolPlugin::enqueue(const PluginTensorDesc *inputDesc, const PluginTe
     default: // should NOT be here
         printf("\tUnsupport datatype!\n");
     }
+
     return 0;
 }
 
