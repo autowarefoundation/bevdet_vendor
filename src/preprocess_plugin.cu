@@ -63,9 +63,9 @@ __global__ void preprocess_kernel(const uint8_t * src_dev,
         int d2 = k * dst_img_step + 1 * dst_img_step / 3 + i * dst_row_step + j;
         int d3 = k * dst_img_step + 2 * dst_img_step / 3 + i * dst_row_step + j;
 
-		dst_dev[d1] = (static_cast<T>(src_dev[s1]) - static_cast<T>(mean[0])) / static_cast<T>(std[0]);
-		dst_dev[d2] = (static_cast<T>(src_dev[s2]) - static_cast<T>(mean[1])) / static_cast<T>(std[1]);
-		dst_dev[d3] = (static_cast<T>(src_dev[s3]) - static_cast<T>(mean[2])) / static_cast<T>(std[2]);
+        dst_dev[d1] = static_cast<T>((static_cast<float>(src_dev[s1]) - mean[0]) / std[0]);
+        dst_dev[d2] = static_cast<T>((static_cast<float>(src_dev[s2]) - mean[1]) / std[1]);
+        dst_dev[d3] = static_cast<T>((static_cast<float>(src_dev[s3]) - mean[2]) / std[2]);
 	}
 }
 

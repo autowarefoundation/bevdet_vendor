@@ -61,10 +61,10 @@ __global__ void align_bev_kernel(const int nthreads, const T1 *input,
         int ix_se = ix_nw + 1;
         int iy_se = iy_nw + 1;
 
-        T2 nw = (ix_se - ix) * (iy_se - iy);
-        T2 ne = (ix - ix_sw) * (iy_sw - iy);
-        T2 sw = (ix_ne - ix) * (iy - iy_ne);
-        T2 se = (ix - ix_nw) * (iy - iy_nw);
+        T2 nw = static_cast<T2>((ix_se - ix) * (iy_se - iy));
+        T2 ne = static_cast<T2>((ix - ix_sw) * (iy_sw - iy));
+        T2 sw = static_cast<T2>((ix_ne - ix) * (iy - iy_ne));
+        T2 se = static_cast<T2>((ix - ix_nw) * (iy - iy_nw));
 
         // bilinear
         auto inp_ptr_NC = input + n * out_sN;
@@ -72,16 +72,16 @@ __global__ void align_bev_kernel(const int nthreads, const T1 *input,
         for (int c = 0; c < C; ++c, inp_ptr_NC += out_sC, out_ptr_NCHW += out_sC){
             *out_ptr_NCHW = static_cast<T2>(0);
             if (within_bounds_2d(iy_nw, ix_nw, out_H, out_W)){
-                *out_ptr_NCHW += static_cast<T2>(inp_ptr_NC[iy_nw * out_sH + ix_nw * out_sW]) * nw;
+                *out_ptr_NCHW = static_cast<T2>(static_cast<float>(*out_ptr_NCHW) + static_cast<float>(inp_ptr_NC[iy_nw * out_sH + ix_nw * out_sW]) * static_cast<float>(nw));
             }
             if (within_bounds_2d(iy_ne, ix_ne, out_H, out_W)){
-                *out_ptr_NCHW += static_cast<T2>(inp_ptr_NC[iy_ne * out_sH + ix_ne * out_sW]) * ne;
+                *out_ptr_NCHW = static_cast<T2>(static_cast<float>(*out_ptr_NCHW) + static_cast<float>(inp_ptr_NC[iy_ne * out_sH + ix_ne * out_sW]) * static_cast<float>(ne));
             }
             if (within_bounds_2d(iy_sw, ix_sw, out_H, out_W)){
-                *out_ptr_NCHW += static_cast<T2>(inp_ptr_NC[iy_sw * out_sH + ix_sw * out_sW]) * sw;
+                *out_ptr_NCHW = static_cast<T2>(static_cast<float>(*out_ptr_NCHW) + static_cast<float>(inp_ptr_NC[iy_sw * out_sH + ix_sw * out_sW]) * static_cast<float>(sw));
             }
             if (within_bounds_2d(iy_se, ix_se, out_H, out_W)){
-                *out_ptr_NCHW += static_cast<T2>(inp_ptr_NC[iy_se * out_sH + ix_se * out_sW]) * se;
+                *out_ptr_NCHW = static_cast<T2>(static_cast<float>(*out_ptr_NCHW) + static_cast<float>(inp_ptr_NC[iy_se * out_sH + ix_se * out_sW]) * static_cast<float>(se));
             }
         }
     }
