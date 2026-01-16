@@ -92,7 +92,6 @@ the data_infos folder can be downloaded from [Google drive](https://drive.google
 For desktop or server：
 
 - CUDA 11.8
-- cuDNN 8.6.0
 - TensorRT 8.5.2.2
 - yaml-cpp
 - Eigen3
@@ -102,7 +101,6 @@ For Jetson AGX Orin
 
 - Jetpack 5.1.1
 - CUDA 11.4.315
-- cuDNN 8.6.0
 - TensorRT 8.5.2.2
 - yaml-cpp
 - Eigen3

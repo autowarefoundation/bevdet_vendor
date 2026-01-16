@@ -35,7 +35,6 @@ set(CMAKE_CXX_FLAGS_RELEASE "-Wno-deprecated-declarations -O3")
 set(CMAKE_BUILD_TYPE "RELEASE")
 
 find_package(ament_cmake REQUIRED)
-find_package(cudnn_cmake_module REQUIRED)
 find_package(tensorrt_cmake_module REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(yaml-cpp REQUIRED)
@@ -43,10 +42,9 @@ find_package(Eigen3 REQUIRED)
 
 find_package(CUDA)
 find_package(CUDAToolkit)
-find_package(CUDNN)
 find_package(TENSORRT)
-if(NOT (CUDAToolkit_FOUND AND CUDNN_FOUND AND TENSORRT_FOUND))
-  message(WARNING "cuda, cudnn, tensorrt libraries are not found")
+if(NOT (CUDAToolkit_FOUND AND TENSORRT_FOUND))
+  message(WARNING "cuda, tensorrt libraries are not found")
   return()
 endif()
 
@@ -88,7 +86,6 @@ target_link_libraries(
   ${TENSORRT_LIBRARIES}
   ${CUDA_LIBRARIES}
   ${CUBLAS_LIBRARIES}
-  ${CUDNN_LIBRARY}
 )
 
 set_target_properties(${PROJECT_NAME}
@@ -113,8 +110,6 @@ ament_export_targets(export_${PROJECT_NAME})
 ament_export_dependencies(
   "CUDA"
   "CUDAToolkit"
-  "cudnn_cmake_module"
-  "CUDNN"
   "rclcpp"
   "tensorrt_cmake_module"
   "TENSORRT"
