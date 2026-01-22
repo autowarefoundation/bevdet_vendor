@@ -60,7 +60,7 @@ __global__ void bev_pool_v2_kernel(int channel,
             feat_offset = ranks_feat[interval_start + i] / img_size * chan_step + 
                           curr_step + ranks_feat[interval_start + i] % img_size;
   
-            sum += static_cast<T2>(feat[feat_offset]) * static_cast<T2>(depth[ranks_depth[interval_start + i]]);
+            sum = static_cast<T2>(static_cast<float>(sum) + static_cast<float>(feat[feat_offset]) * static_cast<float>(depth[ranks_depth[interval_start + i]]));
         }
         out[curr_c * map_size + ranks_bev[interval_start]] = sum;
     }
