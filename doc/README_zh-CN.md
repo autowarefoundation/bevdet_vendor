@@ -99,7 +99,6 @@ data_infos文件夹，在这里下载 [Google drive](https://drive.google.com/fi
 对于桌面或服务器平台：
 
 - CUDA 11.8
-- cuDNN 8.6.0
 - TensorRT 8.5.2.2
 - yaml-cpp
 - Eigen3
@@ -109,7 +108,6 @@ data_infos文件夹，在这里下载 [Google drive](https://drive.google.com/fi
 
 - Jetpack 5.1.1
 - CUDA 11.4.315
-- cuDNN 8.6.0
 - TensorRT 8.5.2.2
 - yaml-cpp
 - Eigen3
