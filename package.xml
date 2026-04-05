@@ -10,6 +10,9 @@
 
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
 
+  <build_depend>tensorrt_cmake_module</build_depend>
+
+  <depend>eigen</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>
   <depend>yaml-cpp</depend>
