@@ -67,6 +67,7 @@ set(bevdet_source_files
   src/precision_config.cpp
 )
 
+set(CUDA_LINK_LIBRARIES_KEYWORD PUBLIC)
 cuda_add_library(${PROJECT_NAME} SHARED
   ${bevdet_source_files}
 )
@@ -81,7 +82,7 @@ target_include_directories(
 
 target_link_libraries(
   ${PROJECT_NAME}
-  CCCL::CCCL
+  PUBLIC
   CUDA::cudart
   yaml-cpp
   ${NVINFER}
@@ -89,6 +90,8 @@ target_link_libraries(
   ${TENSORRT_LIBRARIES}
   ${CUDA_LIBRARIES}
   ${CUBLAS_LIBRARIES}
+  PRIVATE
+  CCCL::CCCL
 )
 
 set_target_properties(${PROJECT_NAME}
@@ -118,4 +121,4 @@ ament_export_dependencies(
   "TENSORRT"
 )
 
-ament_package(CONFIG_EXTRAS cmake/find_cccl.cmake)
+ament_package()
