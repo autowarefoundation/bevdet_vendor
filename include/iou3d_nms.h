@@ -6,13 +6,6 @@ All Rights Reserved 2019-2022.
 #pragma once
 
 #include <stdio.h>
-#include <thrust/count.h>
-#include <thrust/device_vector.h>
-#include <thrust/gather.h>
-#include <thrust/host_vector.h>
-#include <thrust/sequence.h>
-#include <thrust/sort.h>
-#include <thrust/transform.h>
 
 #include <vector>
 #include <iostream>
