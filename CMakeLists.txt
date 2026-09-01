@@ -48,6 +48,8 @@ if(NOT (CUDAToolkit_FOUND AND TENSORRT_FOUND))
   return()
 endif()
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/find_cccl.cmake)
+
 set(bevdet_source_files
   src/bevdet.cpp
 
@@ -79,6 +81,7 @@ target_include_directories(
 
 target_link_libraries(
   ${PROJECT_NAME}
+  CCCL::CCCL
   CUDA::cudart
   yaml-cpp
   ${NVINFER}
@@ -115,4 +118,4 @@ ament_export_dependencies(
   "TENSORRT"
 )
 
-ament_package()
+ament_package(CONFIG_EXTRAS cmake/find_cccl.cmake)
